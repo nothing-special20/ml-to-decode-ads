@@ -1,0 +1,85 @@
+function applyHeatmapGradient(sheet, range, min, max) {
+  // Define a single gradient rule for the range
+  var rule = SpreadsheetApp.newConditionalFormatRule()
+    .setGradientMinpointWithValue("#F8696B", SpreadsheetApp.InterpolationType.NUMBER, min.toString()) // Green for the minimum value
+    .setGradientMidpointWithValue("#FFEB84", SpreadsheetApp.InterpolationType.NUMBER, ((min + max) / 2).toString()) // Yellow for the midpoint
+    .setGradientMaxpointWithValue("#63BE7B", SpreadsheetApp.InterpolationType.NUMBER, max.toString()) // Red for the maximum value
+    .setRanges([range])
+    .build();
+
+  // Apply the rule to the sheet
+  sheet.setConditionalFormatRules([rule]);
+}
+
+function main() {
+  var spreadsheetUrl = "https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_URL_HERE";
+  var ss = SpreadsheetApp.openByUrl(spreadsheetUrl);
+  var sheet = ss.getSheetByName("Impressions") || ss.insertSheet("Impressions");
+  
+  sheet.clear();
+  
+  var hourlyData = Array(24).fill().map(() => ({
+    Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, 
+    Friday: 0, Saturday: 0, Sunday: 0
+  }));
+  
+  var report = AdsApp.report(
+    "SELECT HourOfDay, DayOfWeek, Impressions " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "WHERE Impressions > 0 " +
+    "DURING LAST_30_DAYS");
+  
+  var rows = report.rows();
+  while (rows.hasNext()) {
+    var row = rows.next();
+    var hour = parseInt(row['HourOfDay']);
+    var day = row['DayOfWeek'];
+    var impressions = parseInt(row['Impressions']);
+    hourlyData[hour][day] += impressions;
+  }
+  
+  var headers = ['Hour', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  
+  var data = [];
+  var min = Infinity;
+  var max = -Infinity;
+  
+  for (var hour = 0; hour < 24; hour++) {
+    var row = [hour];
+    headers.slice(1).forEach(day => {
+      var value = hourlyData[hour][day];
+      row.push(value);
+      if (value < min) min = value;
+      if (value > max) max = value;
+    });
+    data.push(row);
+  }
+  
+  var dataRange = sheet.getRange(2, 1, 24, 8);
+  dataRange.setValues(data);
+  
+  var range = sheet.getRange(2, 2, 24, 7);
+  
+  var min = 0; // Replace with your minimum value
+  var max = 100; // Replace with your maximum value
+
+  applyHeatmapGradient(sheet, range, min, max);
+
+  
+  sheet.getRange(1, 1, sheet.getLastRow(), 1).setHorizontalAlignment("center");
+  
+  for (var i = 1; i <= 8; i++) {
+    sheet.autoResizeColumn(i);
+  }
+  
+  var chartRange = sheet.getRange(1, 1, 25, 8);
+  var chart = sheet.newChart()
+    .asColumnChart()
+    .addRange(chartRange)
+    .setPosition(26, 1, 0, 0)
+    .setOption('title', 'Hourly Impressions')
+    .build();
+    
+  sheet.insertChart(chart);
+}
